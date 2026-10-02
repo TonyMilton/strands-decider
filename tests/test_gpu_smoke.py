@@ -120,29 +120,32 @@ def test_prefix_cache_is_exact_in_fp32(fp32_model):
 
     Asserted in fp32 where it should hold to rounding, not approximately.
     """
-    from strands_decider.infer import EngineConfig, SystemOneEngine
+    from strands_decider.infer import EngineConfig
+    from strands_decider.torch_engine import TorchEngine
 
     request = _routing_request()
-    cached = SystemOneEngine(fp32_model, EngineConfig(use_prefix_cache=True)).evaluate(request)
-    naive = SystemOneEngine(fp32_model, EngineConfig(use_prefix_cache=False)).evaluate(request)
+    cached = TorchEngine(fp32_model, EngineConfig(use_prefix_cache=True)).evaluate(request)
+    naive = TorchEngine(fp32_model, EngineConfig(use_prefix_cache=False)).evaluate(request)
     assert _max_answer_delta(cached, naive) < 1e-4
 
 
 def test_prefix_cache_close_enough_in_bf16(model):
     """bf16 is the serving dtype; the residual gap must stay far below any
     threshold a caller would route on."""
-    from strands_decider.infer import EngineConfig, SystemOneEngine
+    from strands_decider.infer import EngineConfig
+    from strands_decider.torch_engine import TorchEngine
 
     request = _routing_request()
-    cached = SystemOneEngine(model, EngineConfig(use_prefix_cache=True)).evaluate(request)
-    naive = SystemOneEngine(model, EngineConfig(use_prefix_cache=False)).evaluate(request)
+    cached = TorchEngine(model, EngineConfig(use_prefix_cache=True)).evaluate(request)
+    naive = TorchEngine(model, EngineConfig(use_prefix_cache=False)).evaluate(request)
     assert _max_answer_delta(cached, naive) < 1e-2
 
 
 def test_prefix_cache_saves_tokens(model):
     """The whole point: N questions should not re-encode the state N times."""
-    from strands_decider.infer import EngineConfig, SystemOneEngine
+    from strands_decider.infer import EngineConfig
     from strands_decider.schema import NoulQuestion, SystemOneRequest
+    from strands_decider.torch_engine import TorchEngine
 
     state = "A fairly long support ticket. " * 60
     questions = {
@@ -151,17 +154,17 @@ def test_prefix_cache_saves_tokens(model):
     }
     request = SystemOneRequest(state=state, questions=questions)
 
-    cached = SystemOneEngine(model, EngineConfig(use_prefix_cache=True)).evaluate(request)
-    naive = SystemOneEngine(model, EngineConfig(use_prefix_cache=False)).evaluate(request)
+    cached = TorchEngine(model, EngineConfig(use_prefix_cache=True)).evaluate(request)
+    naive = TorchEngine(model, EngineConfig(use_prefix_cache=False)).evaluate(request)
 
     assert cached.usage.input_tokens < naive.usage.input_tokens / 3
 
 
 def test_answers_respect_api_shape(model):
-    from strands_decider.infer import SystemOneEngine
     from strands_decider.schema import ScoreQuestion
+    from strands_decider.torch_engine import TorchEngine
 
-    engine = SystemOneEngine(model)
+    engine = TorchEngine(model)
     resp = engine.ask(
         "The food was fine but the wait was long.",
         {
@@ -189,8 +192,9 @@ def test_lora_checkpoint_save_load_roundtrip(tmp_path):
     """
     import torch
 
-    from strands_decider.infer import EngineConfig, SystemOneEngine
+    from strands_decider.infer import EngineConfig
     from strands_decider.modeling import StrandsDeciderConfig, StrandsDeciderModel
+    from strands_decider.torch_engine import TorchEngine
 
     cfg = StrandsDeciderConfig(
         base_model=SMALL_BASE, num_slots=8, max_length=512,
@@ -207,10 +211,10 @@ def test_lora_checkpoint_save_load_roundtrip(tmp_path):
     model.save_pretrained(ckpt)
 
     request = _routing_request()
-    before = SystemOneEngine(model.to("cuda").eval(), EngineConfig()).evaluate(request)
+    before = TorchEngine(model.to("cuda").eval(), EngineConfig()).evaluate(request)
 
     reloaded = StrandsDeciderModel.load(ckpt)
-    after = SystemOneEngine(reloaded.to("cuda").eval(), EngineConfig()).evaluate(request)
+    after = TorchEngine(reloaded.to("cuda").eval(), EngineConfig()).evaluate(request)
 
     assert _max_answer_delta(before, after) < 1e-4
     assert reloaded.config.num_slots == 8
@@ -222,9 +226,10 @@ def test_temperature_is_applied_on_load(tmp_path):
     import json
     import os
 
-    from strands_decider.infer import EngineConfig, SystemOneEngine
+    from strands_decider.infer import EngineConfig
     from strands_decider.modeling import StrandsDeciderConfig, StrandsDeciderModel
     from strands_decider.schema import ChoiceQuestion, SystemOneRequest
+    from strands_decider.torch_engine import TorchEngine
 
     cfg = StrandsDeciderConfig(
         base_model=SMALL_BASE, num_slots=8, max_length=512,
@@ -244,7 +249,7 @@ def test_temperature_is_applied_on_load(tmp_path):
         },
     )
 
-    sharp = SystemOneEngine(
+    sharp = TorchEngine(
         StrandsDeciderModel.load(ckpt).to("cuda").eval(), EngineConfig()
     ).evaluate(request)
 
@@ -258,7 +263,7 @@ def test_temperature_is_applied_on_load(tmp_path):
 
     soft_model = StrandsDeciderModel.load(ckpt)
     assert soft_model.config.temperature == 5.0
-    soft = SystemOneEngine(soft_model.to("cuda").eval(), EngineConfig()).evaluate(request)
+    soft = TorchEngine(soft_model.to("cuda").eval(), EngineConfig()).evaluate(request)
 
     assert soft.answers["dept"].confidence < sharp.answers["dept"].confidence
 
@@ -279,11 +284,12 @@ def _chunking_request():
 
 
 def _chunk_pair(model, max_batch_a=3, max_batch_b=64):
-    from strands_decider.infer import EngineConfig, SystemOneEngine
+    from strands_decider.infer import EngineConfig
+    from strands_decider.torch_engine import TorchEngine
 
     questions, request = _chunking_request()
-    a = SystemOneEngine(model, EngineConfig(max_batch=max_batch_a)).evaluate(request)
-    b = SystemOneEngine(model, EngineConfig(max_batch=max_batch_b)).evaluate(request)
+    a = TorchEngine(model, EngineConfig(max_batch=max_batch_a)).evaluate(request)
+    b = TorchEngine(model, EngineConfig(max_batch=max_batch_b)).evaluate(request)
     return questions, a, b
 
 
@@ -340,11 +346,12 @@ def test_long_state_does_not_starve_the_question(model):
     of it, leaving the question a floor of 8 tokens -- too few to hold the option list,
     so the model chose among options it could not see. Every JevBench long_policy task
     hit that path."""
-    from strands_decider.infer import EngineConfig, SystemOneEngine
+    from strands_decider.infer import EngineConfig
     from strands_decider.prompting import render_question, render_state
     from strands_decider.schema import ChoiceQuestion
+    from strands_decider.torch_engine import TorchEngine
 
-    eng = SystemOneEngine(model, EngineConfig())
+    eng = TorchEngine(model, EngineConfig())
     q = ChoiceQuestion(
         instructions="Under the stated policy, what is the correct outcome?",
         criteria={
@@ -375,10 +382,11 @@ def test_question_reserve_is_capped_so_state_survives(model):
     Both inputs are oversized here on purpose. With a short state the cap is
     untestable, because the state simply does not fill the budget it is given.
     """
-    from strands_decider.infer import EngineConfig, SystemOneEngine
+    from strands_decider.infer import EngineConfig
     from strands_decider.prompting import render_state
+    from strands_decider.torch_engine import TorchEngine
 
-    eng = SystemOneEngine(model, EngineConfig(max_question_fraction=0.75))
+    eng = TorchEngine(model, EngineConfig(max_question_fraction=0.75))
     huge = "Is this permitted under the policy? " * 2000
     s, kept = eng._fit(render_state(_long_state()), [huge])
 
@@ -391,10 +399,11 @@ def test_question_reserve_is_capped_so_state_survives(model):
 
 def test_long_state_answer_is_still_well_formed(model):
     """End to end: a long state must still yield a valid distribution over the options."""
-    from strands_decider.infer import EngineConfig, SystemOneEngine
+    from strands_decider.infer import EngineConfig
     from strands_decider.schema import ChoiceQuestion, SystemOneRequest
+    from strands_decider.torch_engine import TorchEngine
 
-    eng = SystemOneEngine(model, EngineConfig())
+    eng = TorchEngine(model, EngineConfig())
     req = SystemOneRequest(
         state=_long_state(),
         questions={
@@ -411,8 +420,9 @@ def test_long_state_answer_is_still_well_formed(model):
 
 def test_both_paths_agree_on_a_long_state(model):
     """_fit changed tokenisation on both paths; they must still match."""
-    from strands_decider.infer import EngineConfig, SystemOneEngine
+    from strands_decider.infer import EngineConfig
     from strands_decider.schema import ChoiceQuestion, SystemOneRequest
+    from strands_decider.torch_engine import TorchEngine
 
     req = SystemOneRequest(
         state=_long_state(),
@@ -423,7 +433,7 @@ def test_both_paths_agree_on_a_long_state(model):
             )
         },
     )
-    cached = SystemOneEngine(model, EngineConfig(use_prefix_cache=True)).evaluate(req)
-    naive = SystemOneEngine(model, EngineConfig(use_prefix_cache=False)).evaluate(req)
+    cached = TorchEngine(model, EngineConfig(use_prefix_cache=True)).evaluate(req)
+    naive = TorchEngine(model, EngineConfig(use_prefix_cache=False)).evaluate(req)
     for k, v in cached.answers["outcome"].probabilities.items():
         assert v == pytest.approx(naive.answers["outcome"].probabilities[k], abs=1e-2)

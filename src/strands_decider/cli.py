@@ -269,12 +269,22 @@ def eval_cmd(
 
 
 def _auto_device() -> str:
-    """Best available torch device: cuda > mps > cpu."""
+    """Best available device: cuda > mlx > mps > cpu."""
     if torch.cuda.is_available():
         return "cuda"
+    if _mlx_available():
+        return "mlx"
     if getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available():
         return "mps"
     return "cpu"
+
+
+def _mlx_available() -> bool:
+    try:
+        from . import mlx_engine
+    except ImportError:  # the [mlx] extra is not installed
+        return False
+    return mlx_engine.available()
 
 
 def _fmt_temperature(t: float | dict[str, float]) -> str:
@@ -299,7 +309,7 @@ def serve_cmd(
     port: int = typer.Option(8000),
     device: str | None = typer.Option(
         None, "--device",
-        help="Torch device (cuda|mps|cpu). Auto-detected when omitted.",
+        help="Device (cuda|mlx|mps|cpu). Auto-detected when omitted.",
     ),
     no_prefix_cache: bool = typer.Option(False, "--no-prefix-cache"),
     model_name: str | None = typer.Option(
@@ -332,7 +342,7 @@ def ask_cmd(
     ),
     device: str | None = typer.Option(
         None, "--device",
-        help="Torch device (cuda|mps|cpu). Auto-detected when omitted.",
+        help="Device (cuda|mlx|mps|cpu). Auto-detected when omitted.",
     ),
     as_json: bool = typer.Option(False, "--json", help="Print the raw API response."),
 ) -> None:

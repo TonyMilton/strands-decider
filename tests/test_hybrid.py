@@ -9,8 +9,9 @@ from types import SimpleNamespace
 
 import torch.nn as nn
 
-from strands_decider.infer import EngineConfig, SystemOneEngine
+from strands_decider.infer import EngineConfig
 from strands_decider.modeling import StrandsDeciderModel
+from strands_decider.torch_engine import TorchEngine
 
 
 class _Stub(nn.Module):
@@ -29,8 +30,8 @@ def test_is_hybrid_reads_layer_types():
 
 
 def test_engine_keeps_prefix_cache_for_hybrid_torsos():
-    hybrid = SystemOneEngine(_Stub(["linear_attention", "full_attention"]),
+    hybrid = TorchEngine(_Stub(["linear_attention", "full_attention"]),
                              EngineConfig(device="cpu", use_prefix_cache=True))
     assert hybrid.cfg.use_prefix_cache is True
-    plain = SystemOneEngine(_Stub(["full_attention"]), EngineConfig(device="cpu", use_prefix_cache=True))
+    plain = TorchEngine(_Stub(["full_attention"]), EngineConfig(device="cpu", use_prefix_cache=True))
     assert plain.cfg.use_prefix_cache is True

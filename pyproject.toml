@@ -29,6 +29,9 @@ dependencies = [
 [project.optional-dependencies]
 # Only the corpus build uses datasets: `strands-decider data build` and `python -m strands_decider.data.multistep`.
 train = ["datasets>=2.20"]
+# Apple silicon: --device mlx. mlx-lm stays on the tested minor version: the backend
+# reads its model layout and cache state directly.
+mlx = ["mlx>=0.30", "mlx-lm>=0.32,<0.33"]
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
@@ -96,6 +99,8 @@ module = [
     "datasets.*",
     "safetensors.*",
     "huggingface_hub.*",
+    "mlx.*",
+    "mlx_lm.*",
     "yaml",
 ]
 ignore_missing_imports = true

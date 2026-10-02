@@ -1,4 +1,4 @@
-"""SystemOneEngine runs a half-precision torso in fp32 on CPU, and leaves it alone elsewhere."""
+"""TorchEngine runs a half-precision torso in fp32 on CPU, and leaves it alone elsewhere."""
 
 from __future__ import annotations
 
@@ -6,7 +6,8 @@ import pytest
 import torch
 from torch import nn
 
-from strands_decider.infer import EngineConfig, SystemOneEngine
+from strands_decider.infer import EngineConfig
+from strands_decider.torch_engine import TorchEngine
 
 
 class _TinyModel(nn.Module):
@@ -20,8 +21,8 @@ class _TinyModel(nn.Module):
 def _build(dtype, device, under_inference_mode):
     if under_inference_mode:  # as load_engine does
         with torch.inference_mode():
-            return SystemOneEngine(_TinyModel(dtype), EngineConfig(device=device))
-    return SystemOneEngine(_TinyModel(dtype), EngineConfig(device=device))
+            return TorchEngine(_TinyModel(dtype), EngineConfig(device=device))
+    return TorchEngine(_TinyModel(dtype), EngineConfig(device=device))
 
 
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float16])

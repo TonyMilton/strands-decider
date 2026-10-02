@@ -207,7 +207,7 @@ front (`_fit` in `infer.py`).
 
 **Hybrid torsos share the prefix too.** A Gated DeltaNet layer carries convolution and
 recurrent states instead of keys and values. The cache fork (`_expand_cache` in
-`infer.py`) repeats those along with the keys and values, into new layer objects, dicts
+`torch_engine.py`) repeats those along with the keys and values, into new layer objects, dicts
 and tensors — the layer updates its states and flags in place, so a fork sharing them
 would corrupt the prefix — following decider-2b's `shared_prefix.py`. A layer holding
 any other tensor raises `UnforkableCache`, and the engine falls back to exact batched
@@ -242,7 +242,9 @@ src/strands_decider/
   train.py        LoRA + readout training loop
   distributed.py  multi-GPU training under torchrun: the 1-GPU steps, shared across ranks
   evaluate.py     accuracy, ECE, NLL, MAE; temperature fitting; calib/test split
-  infer.py        serving engine; shared-state cache, including hybrid torsos
+  infer.py        serving engine: rendering, truncation, batching, answer decoding
+  torch_engine.py PyTorch engine (cuda, mps, cpu); shared-state cache, including hybrid torsos
+  mlx_engine.py   MLX engine (Apple silicon); the adapter merged at load, in fp32
   mps_kernels.py  Gated DeltaNet chunk rule for Apple-silicon serving (no fla on macOS)
   server.py       FastAPI, POST /v1/systemone
   cli.py          the strands-decider command

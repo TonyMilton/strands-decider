@@ -9,13 +9,15 @@ from __future__ import annotations
 
 import os
 import time
+from dataclasses import replace
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 
-from .infer import EngineConfig, SystemOneEngine
+from .infer import EngineConfig, SystemOneEngine, load_engine
 from .modeling import StrandsDeciderModel
 from .schema import SystemOneRequest, SystemOneResponse
+from .torch_engine import TorchEngine
 
 _engine: SystemOneEngine | None = None
 
@@ -46,13 +48,17 @@ def create_app(
     # on the same host cannot be confused. HF repo ids ("org/name") collapse to `name`.
     resolved_name = model_name or os.path.basename(checkpoint.rstrip("/")) or checkpoint
 
-    model = StrandsDeciderModel.load(checkpoint, attn_implementation=attn_implementation)
-    _engine = SystemOneEngine(
-        model,
-        EngineConfig(
-            device=device, use_prefix_cache=use_prefix_cache, model_name=resolved_name
-        ),
-    )
+    if device == "mlx":
+        _engine = load_engine(checkpoint, device=device, use_prefix_cache=use_prefix_cache)
+        _engine.cfg = replace(_engine.cfg, model_name=resolved_name)
+    else:
+        model = StrandsDeciderModel.load(checkpoint, attn_implementation=attn_implementation)
+        _engine = TorchEngine(
+            model,
+            EngineConfig(
+                device=device, use_prefix_cache=use_prefix_cache, model_name=resolved_name
+            ),
+        )
 
     @app.get("/health")
     def health() -> dict:
@@ -61,10 +67,10 @@ def create_app(
             "status": "ok",
             "model": eng.cfg.model_name,
             "checkpoint": checkpoint,
-            "base_model": eng.model.config.base_model,
-            "num_slots": eng.model.config.num_slots,
-            "max_length": eng.model.config.max_length,
-            "temperature": eng.model.config.temperature,
+            "base_model": eng.model_config.base_model,
+            "num_slots": eng.model_config.num_slots,
+            "max_length": eng.model_config.max_length,
+            "temperature": eng.model_config.temperature,
             "device": eng.cfg.device,
             "prefix_cache": eng.cfg.use_prefix_cache,
         }

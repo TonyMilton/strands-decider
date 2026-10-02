@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from strands_decider import server
-from strands_decider.infer import _to_answer
+from strands_decider.infer import EngineConfig, _to_answer
 from strands_decider.prompting import render_question
 from strands_decider.schema import (
     ChoiceQuestion,
@@ -45,6 +45,7 @@ class _StubEngine:
 
     cfg = _StubCfg()
     model = _StubModel()
+    model_config = model.config
 
     def evaluate(self, request):
         answers = {}
@@ -98,7 +99,7 @@ def test_health_identifies_checkpoint(monkeypatch):
     still holding the port cannot pass for the one just started."""
     monkeypatch.setattr(server, "_engine", None)
     monkeypatch.setattr(server.StrandsDeciderModel, "load", lambda *a, **k: _StubModel())
-    monkeypatch.setattr(server, "SystemOneEngine", lambda model, cfg: _StubEngine())
+    monkeypatch.setattr(server, "TorchEngine", lambda model, cfg: _StubEngine())
     r = TestClient(server.create_app("checkpoints/strands-decider-test", device="cpu")).get("/health")
     assert r.status_code == 200
     assert r.json()["checkpoint"] == "checkpoints/strands-decider-test"
@@ -201,11 +202,11 @@ def test_real_create_app_routes_work(monkeypatch):
     server.create_app itself -- for instance an unresolvable request annotation,
     which FastAPI turns into a silent 422 rather than an import error.
     """
-    from strands_decider import infer
+    from strands_decider import torch_engine
 
     monkeypatch.setattr(server.StrandsDeciderModel, "load", classmethod(lambda cls, *a, **k: _StubModel()))
-    monkeypatch.setattr(server, "SystemOneEngine", lambda model, cfg: _StubEngine())
-    monkeypatch.setattr(infer, "SystemOneEngine", lambda model, cfg=None: _StubEngine())
+    monkeypatch.setattr(server, "TorchEngine", lambda model, cfg: _StubEngine())
+    monkeypatch.setattr(torch_engine, "TorchEngine", lambda model, cfg=None: _StubEngine())
 
     app = server.create_app("checkpoints/does-not-exist", device="cpu")
     client = TestClient(app)
@@ -236,7 +237,7 @@ def test_too_many_options_returns_422(monkeypatch):
             raise ValueError("question has 30 options but this model has 24 slots")
 
     monkeypatch.setattr(server.StrandsDeciderModel, "load", classmethod(lambda cls, *a, **k: _StubModel()))
-    monkeypatch.setattr(server, "SystemOneEngine", lambda model, cfg: _NarrowEngine())
+    monkeypatch.setattr(server, "TorchEngine", lambda model, cfg: _NarrowEngine())
 
     app = server.create_app("checkpoints/does-not-exist", device="cpu")
     r = TestClient(app).post(
@@ -245,3 +246,21 @@ def test_too_many_options_returns_422(monkeypatch):
     )
     assert r.status_code == 422
     assert "24 slots" in r.json()["detail"]
+
+
+def test_mlx_loads_through_load_engine_and_keeps_the_served_name(monkeypatch):
+    class _MlxEngine(_StubEngine):
+        cfg = EngineConfig(device="mlx")
+
+    calls = []
+
+    def load_engine(checkpoint, **kwargs):
+        calls.append((checkpoint, kwargs))
+        return _MlxEngine()
+
+    monkeypatch.setattr(server, "_engine", None)
+    monkeypatch.setattr(server, "load_engine", load_engine)
+    app = server.create_app("org/strands-decider-x", device="mlx")
+    health = TestClient(app).get("/health").json()
+    assert (health["model"], health["device"]) == ("strands-decider-x", "mlx")
+    assert calls == [("org/strands-decider-x", {"device": "mlx", "use_prefix_cache": True})]

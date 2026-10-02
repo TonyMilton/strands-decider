@@ -5,7 +5,9 @@ from the command line, and serve it over HTTP. Strands decider answers typed que
 state, the text to classify; it does not generate text. A question is a `noul` (yes or no,
 returned as P(true)), a `choice` (one of N options) or a `score` (a level on an ordered
 scale). Install the package, point the commands at the published Hub id or at a checkpoint you
-trained, then `strands-decider ask` or `strands-decider serve`. Pass `--device cuda`, `mps` or `cpu` explicitly. A
+trained, then `strands-decider ask` or `strands-decider serve`. Pass `--device cuda`, `mlx`, `mps` or `cpu`
+explicitly, or omit it for the first available of `cuda`, `mlx` (with the
+[`[mlx]` extra](#mlx-on-apple-silicon) installed), `mps` and `cpu`. A
 checkpoint from `training/recipe.sh all` is already calibrated; calibrate any other
 checkpoint with `strands-decider calibrate` before you serve it.
 
@@ -15,6 +17,8 @@ checkpoint with `strands-decider calibrate` before you serve it.
 - [Serve](#serve): `POST /v1/systemone` and `/health`, on `127.0.0.1` with no authentication.
 - [Asking many questions is nearly free](#asking-many-questions-is-nearly-free): the shared-prefix cache.
 - [Serving on a Mac](#serving-on-a-mac): MPS, and the one kernel that had to be replaced.
+- [MLX on Apple silicon](#mlx-on-apple-silicon): faster than MPS, and in fp32, closer to
+  the fp32 reference.
 - [`../examples/strands/`](../examples/strands/README.md): an agent built with the Strands
   Agents SDK that uses the server, with its client in `_client.py`.
 - [`../evaluation/results.md`](../evaluation/results.md): measured latency and accuracy on an
@@ -237,3 +241,41 @@ random-input tests and was wrong by up to 5e8 on real activations. Correlated,
 l2-normalised keys make the powers of N huge before they cancel.
 `tests/test_mps_kernels.py` builds its inputs that way and fails 14 cases against that
 version.
+
+## MLX on Apple silicon
+
+`--device mlx` runs the torso with [MLX](https://github.com/ml-explore/mlx) and mlx-lm's
+Qwen3.5, whose Gated DeltaNet layers have a fused Metal kernel, instead of PyTorch.
+Rendering, truncation, the shared-prefix cache and the answer decoding are the PyTorch
+engine's own; only the forward pass differs. Qwen3.5 checkpoints with a pointer head only,
+which includes v19.
+
+```bash
+pip install -e ".[mlx]"
+strands-decider serve StrandsAgents/strands-decider-2B-hobson-v19   # picks mlx
+```
+
+**The adapter is merged into the base at load, in fp32.** The merged weight
+`base + B·A·scale` is not representable in bf16, so a bf16 merge would round the adapter's
+update. The base is rounded to the checkpoint's training dtype first, as
+`StrandsDeciderModel.load` loads it: the Qwen3.5 base ships `A_log` and the linear-attention
+norm weights in fp32, and training saw them rounded to bf16. It reads the same base files
+from the Hub cache as PyTorch does, and the merge takes about a second. The fp32 weights
+take 7 GiB of memory.
+
+**Parity.** Measured with v19 on an M3 Max (36 GB): mlx 0.32.3, mlx-lm 0.32.0, against the
+PyTorch engine on CPU, which runs the torso in fp32 with the adapter unmerged. Over 157
+answers (noul, choice up to 100 options, score up to 10 levels, dict and list states,
+non-Latin and zero-width text, truncated states and questions, and up to 40 questions in
+one request), the largest probability difference was 4.6e-6 and no answer changed; no
+option's probability crossed any multiple of 0.05. Hidden states agree to a relative
+2.6e-5 or better at every layer, up to 4,096 tokens. bf16 on MPS differs from the same
+reference by up to 1.6e-2, and crossed such a threshold 10 times. The warm median per
+request was 112 ms on MLX and 225 ms on MPS.
+
+mlx-lm before 0.32 puts the epsilon of Gated DeltaNet's q/k normalisation where
+transformers does not, which the `[mlx]` extra rules out. It is capped below 0.33 because
+the engine reads mlx-lm's model layout and cache state directly.
+
+`tests/test_mlx_engine.py` holds a tiny random Qwen3.5 checkpoint to 1e-5 of the PyTorch
+engine; it fails if the base is merged without the bf16 rounding.

@@ -17,7 +17,8 @@ transformers = pytest.importorskip("transformers")
 if not hasattr(transformers, "Qwen3_5TextConfig"):
     pytest.skip("this transformers has no Qwen3.5", allow_module_level=True)
 
-from strands_decider.infer import UnforkableCache, _expand_cache  # noqa: E402
+from strands_decider.infer import UnforkableCache  # noqa: E402
+from strands_decider.torch_engine import _expand_cache  # noqa: E402
 
 HYBRID = ["linear_attention", "linear_attention", "linear_attention", "full_attention"]
 PLAIN = ["full_attention"] * 2
